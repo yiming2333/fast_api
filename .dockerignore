@@ -1,0 +1,38 @@
+# Git 相关
+.git
+.gitignore
+
+# Python 缓存与虚拟环境（容器内有自己的环境，不需要这些）
+__pycache__
+*.pyc
+.venv
+venv
+.pytest_cache
+
+# IDE 配置
+.vscode
+.idea
+
+# Docker 自身文件（避免递归复制）
+Dockerfile
+Dockerfile.mock
+.dockerignore
+docker-compose.yml
+
+# 测试报告与截图（这些是运行时产物，不应打入镜像）
+test-results/
+playwright-report/
+alure-results/
+allure-report/
+others/
+
+*.png
+*.webm
+
+logs/
+*.log
+
+# 敏感信息（安全第一！）
+.env
+*.key
+credentials.json
