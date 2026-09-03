@@ -1,6 +1,7 @@
 # 本地开发与一键启动用 compose 文件
 # 使用：docker compose up --build
 # 运行测试：docker compose run --rm test
+
 services:
   app:
     build:
@@ -34,9 +35,23 @@ services:
       context: .
       dockerfile: Dockerfile
       target: test-runtime
+    shm_size: 2g
     image: fast_api:test
     container_name: fast_api_test
     working_dir: /app
     environment:
       - JWT_SECRET_KEY=test-secret-not-for-production
+      - TZ=Asia/Shanghai
+    # ===== 核心修改 =====
+    # 以 root 运行，避免所有权限问题
+    user: root
+    # 挂载 allure 报告目录到宿主机，方便查看
+    volumes:
+      - ./allure-results:/app/allure-results
+      - ./allure-results:/app/allure-report
+    deploy:
+      resources:
+        limits:
+          memory: 4G   # 硬限制，防止极端情况撑爆宿主机
+    command: pytest -v -s --alluredir=/app/allure-results
     profiles: ["test"]

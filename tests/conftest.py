@@ -1,27 +1,40 @@
-"""pytest 共享 fixtures。
+"""pytest 共享 fixtures —— 同步 TestClient + SQLite 覆盖。
 
-集中提供 TestClient 与已登录用户的 Authorization 头，
-避免每个测试文件重复样板代码。
+策略：
+- 普通演示路由测试（不碰 DB）→ 用 `client`，session 级别
+- SQLAlchemy CRUD 测试      → 用 `db_client`，每个 function 独立的 SQLite 内存库
+                                避免测试间数据污染
+
+db_client 内部：
+1. 创建 aiosqlite 引擎 + async_sessionmaker
+2. 通过 dependency_overrides 替换 get_db
+3. 在 asyncio 事件循环里 create_all
+4. 测试结束后 dispose
 """
+
+import asyncio
+from typing import AsyncGenerator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.db.session import Base, get_db
 from app.main import app
 
 
+# ---------------------------------------------------------------------------
+# 普通 client（session 级别，不 override DB —— 走应用默认 MySQL 连接配置）
+# ---------------------------------------------------------------------------
 @pytest.fixture(scope="session")
 def client() -> TestClient:
-    """整个测试会话复用同一个 TestClient 实例。"""
+    """整个测试会话复用同一个 TestClient 实例（非 DB 路由测试用）。"""
     return TestClient(app)
 
 
 @pytest.fixture(scope="session")
 def alice_token(client: TestClient) -> str:
-    """登录示例用户 alice（密码 secret），返回 access_token。
-
-    使用 session 级别：JWT 在测试会话内有效，避免重复登录开销。
-    """
+    """登录示例用户 alice（密码 secret），返回 access_token。"""
     resp = client.post(
         "/api/v1/auth/token",
         data={"username": "alice", "password": "secret"},
@@ -32,5 +45,70 @@ def alice_token(client: TestClient) -> str:
 
 @pytest.fixture
 def auth_headers(alice_token: str) -> dict:
-    """携带 Bearer token 的请求头，直接传给 client 的 headers 参数。"""
+    """携带 Bearer token 的请求头。"""
     return {"Authorization": f"Bearer {alice_token}"}
+
+
+# ---------------------------------------------------------------------------
+# DB client（每个 function 独立 SQLite 内存库）
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def db_client() -> TestClient:
+    """SQLAlchemy CRUD 测试用的 TestClient。
+
+    内部通过 dependency_overrides 把 get_db 替换为 aiosqlite 内存库，
+    所以：
+    - 不依赖真实 MySQL
+    - 每个测试独立的干净库
+    - create_all 在 async 事件循环里同步执行
+    """
+    # SQLite 内存库 URL（aiosqlite）
+    db_url = "sqlite+aiosqlite:///:memory:"
+
+    engine = create_async_engine(db_url, echo=False)
+    session_maker: async_sessionmaker[AsyncSession] = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    # ---- 覆盖 get_db ----
+    async def _get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_maker() as session:
+            yield session
+
+    # 注意：TestClient 实例要在 override 之后创建
+    # （否则 lifespan 里的 init_db 会先跑 MySQL）
+    app.dependency_overrides[get_db] = _get_db
+
+    # ---- 创建表（需要 asyncio 事件循环）----
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_create_tables(engine))
+    finally:
+        loop.close()
+
+    # ---- 创建 TestClient（with lifespan 上下文）----
+    test_client = TestClient(app)
+    try:
+        yield test_client
+    finally:
+        # 清理
+        app.dependency_overrides.pop(get_db, None)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_dispose(engine))
+        finally:
+            loop.close()
+
+
+async def _create_tables(engine) -> None:
+    """建表。"""
+    import app.models  # noqa: F401 —— 注册到 Base.metadata
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def _dispose(engine) -> None:
+    await engine.dispose()

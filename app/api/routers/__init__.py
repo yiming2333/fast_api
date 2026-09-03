@@ -6,10 +6,11 @@ main.py 只需 `app.include_router(api_router, prefix=settings.api_v1_prefix)`�
 
 from fastapi import APIRouter
 
-from . import auth, examples, files, forms, items, users
+from . import auth, examples, files, forms, items, items_db, users
 
 api_router = APIRouter()
 api_router.include_router(items.router)
+api_router.include_router(items_db.router)  # SQLAlchemy CRUD 版
 api_router.include_router(users.router)
 api_router.include_router(auth.router)
 api_router.include_router(files.router)

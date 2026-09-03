@@ -1,15 +1,10 @@
 """应用入口。
 
-原本将路由、模型、异常处理器、中间件、静态文件、模板全部塞在
-一个 600+ 行的文件中，难以维护。重构后职责清晰：
-
-- 路由         → app/api/routers/*
-- schema       → app/schemas/*
-- 横切关注点   → app/core/*
-- 数据访问     → app/db/*
-
-本文件仅负责：创建应用、注册中间件/异常/路由、挂载静态与模板。
+职责清晰：创建应用、注册中间件/异常/路由、挂载静态与模板、
+管理数据库连接池生命周期（startup 初始化 + shutdown 释放）。
 """
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -19,7 +14,32 @@ from fastapi.templating import Jinja2Templates
 from app.api.routers import api_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
+from app.core.logging import logger
 from app.core.middleware import register_middleware
+from app.db.session import close_engine, init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：startup 建表，shutdown 释放。"""
+    logger.info("应用启动：初始化数据库连接池")
+    try:
+        await init_db()
+        logger.info("数据库表已就绪")
+    except Exception as exc:
+        # MySQL 连不上时只告警，不阻断应用启动
+        # 这样内存字典演示路由仍然可用；真实 DB 路由调用时会返回 503
+        logger.warning(
+            "数据库初始化失败（应用仍可启动）: %s — 请检查 .env 中的 DB_HOST/DB_PASSWORD/DB_NAME 配置",
+            exc,
+        )
+
+    try:
+        yield
+    finally:
+        logger.info("应用关闭：释放数据库连接池")
+        await close_engine()
+
 
 app = FastAPI(
     title=settings.app_name,
@@ -35,6 +55,7 @@ app = FastAPI(
         "name": "MIT",
         "url": "https://opensource.org/licenses/MIT",
     },
+    lifespan=lifespan,
 )
 
 # 中间件与异常处理器

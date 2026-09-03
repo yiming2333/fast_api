@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     所有字段均可通过同名环境变量（不区分大小写）覆盖，例如::
 
-        APP_NAME="我的 API" JWT_SECRET_KEY=change-me uvicorn app.main:app
+        APP_NAME="我的 API" DB_URL="mysql+aiomysql://root:xxx@127.0.0.1:3306/fast_api" uvicorn app.main:app
     """
 
     model_config = SettingsConfigDict(
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # 应用基础信息
+    # ===== 应用基础 =====
     app_name: str = "我的 API"
     app_description: str = "这是一个示例 API，展示文档自定义功能"
     app_version: str = "1.0.0"
@@ -40,13 +40,37 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:8000", "http://localhost:8080"]
     )
 
-    # JWT
+    # ===== JWT =====
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    # ===== 数据库 =====
+    # 直接提供完整 URL 时优先使用；否则按字段拼接
+    db_url: str = ""
+    # 若 db_url 为空，则用以下字段拼接 mysql+aiomysql://user:password@host:port/database
+    db_host: str = "127.0.0.1"
+    db_port: int = 3306
+    db_user: str = "root"
+    db_password: str = ""
+    db_name: str = "fast_api"
+
     # 上传文件保存目录
     upload_dir: str = "uploads"
+
+    # ---------- 派生属性 ----------
+    def get_db_url(self) -> str:
+        """优先返回 db_url，否则用字段拼接 MySQL 异步 URL。"""
+        if self.db_url:
+            return self.db_url
+        # aiomysql 连接串
+        from urllib.parse import quote_plus
+        pw = quote_plus(self.db_password) if self.db_password else ""
+        return (
+            f"mysql+aiomysql://{self.db_user}:{pw}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"?charset=utf8mb4"
+        )
 
 
 @lru_cache

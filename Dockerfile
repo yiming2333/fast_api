@@ -48,24 +48,28 @@ EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/').status==200 else sys.exit(1)" || exit 1
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
 
 
 # Stage 3: test-runtime —— 自包含测试镜像（CI/任何环境可直接运行）
 FROM runtime AS test-runtime
 
+# 切换回 root 以便安装测试依赖和创建目录
 USER root
 
-# 将测试代码与配置打入镜像
+# 复制测试代码与配置
 COPY --chown=app:app tests/ ./tests/
 COPY --chown=app:app pytest.ini ./pytest.ini
 
-# 预创建可写缓存目录，消除 Permission denied 警告
-RUN mkdir -p /app/.pytest_cache && chown -R app:app /app/.pytest_cache
+# 预创建 allure-results 目录（即使挂载覆盖，也留个底）
+RUN mkdir -p /app/allure-results && chown -R app:app /app/allure-results
 
+# 切换到普通用户（但如果你在 compose 中用 root 覆盖，此行不生效）
 USER app
 
-# 禁用 cacheprovider 避免运行时写入问题；静默 httpx 弃用警告
+# 静默 httpx 弃用警告
 ENV PYTHONWARNINGS="ignore::DeprecationWarning:starlette.testclient"
 
-CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short", "-q", "-p", "no:cacheprovider"]
+# 显式指定 allure 报告输出路径，同时禁用 cache 插件
+CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short", "-q", "--alluredir=/app/allure-results", "-p", "no:cacheprovider"]

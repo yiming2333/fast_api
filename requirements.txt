@@ -2,6 +2,12 @@
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 
+# SQLAlchemy 异步 ORM + 驱动
+SQLAlchemy==2.0.49
+aiomysql>=0.2.0
+aiosqlite>=0.20.0  # 测试用（pytest fixture 里的 SQLite override）
+PyMySQL>=1.1.0
+
 # 数据校验与配置
 pydantic-settings>=2.1.0
 email-validator>=2.0.0
@@ -17,5 +23,7 @@ aiofiles==25.1.0
 jinja2>=3.1.2
 
 # 测试相关（开发依赖，可通过 -r requirements-dev.txt 单独安装）
-pytest==7.4.4
-httpx==0.28.1
+pytest>=9.0.0
+httpx2==2.12.0
+pytest-asyncio>=0.23.0
+allure-pytest>=2.16.0

@@ -19,10 +19,12 @@ env/
 # Allure / Coverage
 allure-results/
 allure-report/
-allure-export/
 htmlcov/
 .coverage
 coverage.xml
+
+# 上传目录
+uploads/
 
 # 日志
 logs/
