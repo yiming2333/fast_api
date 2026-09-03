@@ -5,34 +5,48 @@
 # Python 缓存与虚拟环境（容器内有自己的环境，不需要这些）
 __pycache__
 *.pyc
+*.pyo
 .venv
 venv
 .pytest_cache
+*.egg-info
 
 # IDE 配置
 .vscode
 .idea
+*.swp
 
 # Docker 自身文件（避免递归复制）
 Dockerfile
-Dockerfile.mock
 .dockerignore
 docker-compose.yml
+docker-compose.*.yml
 
-# 测试报告与截图（这些是运行时产物，不应打入镜像）
+# CI / 部署编排文件（不打入运行镜像）
+Jenkinsfile
+
+# 测试相关（测试容器通过 volume 挂载，无需进入生产镜像）
+tests/
 test-results/
-playwright-report/
-alure-results/
+pytest.ini
+htmlcov/
+.coverage
+coverage.xml
+allure-results/
 allure-report/
-others/
 
+# 文档与示例
+*.md
+README*
+
+# 运行时产物
+logs/
+*.log
 *.png
 *.webm
 
-logs/
-*.log
-
 # 敏感信息（安全第一！）
 .env
+.env.*
 *.key
 credentials.json

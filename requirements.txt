@@ -1,6 +1,21 @@
+# FastAPI 与 ASGI 服务器
 fastapi==0.141.1
-uvicorn==0.52.4
-pytest==7.4.4
-httpx2==2.12.0
-aiofiles==25.1.0
+uvicorn[standard]==0.52.4
+
+# 数据校验与配置
+pydantic-settings>=2.1.0
+email-validator>=2.0.0
+
+# JWT 认证
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
 bcrypt==4.0.1
+
+# 表单、文件上传、模板与静态文件
+python-multipart>=0.0.6
+aiofiles==25.1.0
+jinja2>=3.1.2
+
+# 测试相关（开发依赖，可通过 -r requirements-dev.txt 单独安装）
+pytest==7.4.4
+httpx==0.28.1
