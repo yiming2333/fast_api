@@ -1,46 +1,42 @@
 # 本地开发与一键启动用 compose 文件
 # 使用：docker compose up --build
+# 运行测试：docker compose run --rm test
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     image: fast_api:latest
     container_name: fast_api
     ports:
       - "8000:8000"
     environment:
-      # 通过 .env 文件注入配置，避免在镜像中硬编码敏感信息
       - APP_NAME=${APP_NAME:-我的 API}
       - DEBUG=${DEBUG:-false}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:8000","http://localhost:8080"]}
+      # CORS_ORIGINS 改为逗号分隔字符串，避免 YAML 数组被当作字面量
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:8080}
     volumes:
-      # 持久化上传目录，避免容器重建后丢失文件
       - ./uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/').status==200 else sys.exit(1)"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0) if urllib.request.urlopen(\"http://127.0.0.1:8000/\").status==200 else sys.exit(1)'"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
-  # CI / 本地测试用的一次性容器，运行完即退出
+  # CI / 任何环境均可运行的自包含测试容器
   test:
     build:
       context: .
       dockerfile: Dockerfile
-    image: fast_api:latest
+      target: test-runtime
+    image: fast_api:test
     container_name: fast_api_test
-    entrypoint: ["python", "-m"]
-    command: ["pytest", "tests/", "-v", "--tb=short", "-q"]
     working_dir: /app
-    # 测试容器需要测试文件，挂载进来即可（不打入生产镜像）
-    volumes:
-      - ./tests:/app/tests:ro
-      - ./pytest.ini:/app/pytest.ini:ro
     environment:
       - JWT_SECRET_KEY=test-secret-not-for-production
     profiles: ["test"]

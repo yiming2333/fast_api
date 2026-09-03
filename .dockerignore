@@ -26,9 +26,7 @@ docker-compose.*.yml
 Jenkinsfile
 
 # 测试相关（测试容器通过 volume 挂载，无需进入生产镜像）
-tests/
 test-results/
-pytest.ini
 htmlcov/
 .coverage
 coverage.xml
@@ -42,11 +40,9 @@ README*
 # 运行时产物
 logs/
 *.log
-*.png
 *.webm
 
 # 敏感信息（安全第一！）
 .env
-.env.*
 *.key
 credentials.json
