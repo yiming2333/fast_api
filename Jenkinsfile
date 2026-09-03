@@ -20,7 +20,7 @@ pipeline {
         ALLURE_RESULTS       = 'allure-results'
         ALLURE_REPORT_NAME   = 'AllureReport'
         MAIL_RECIPIENT       = 'yiming_2333@sina.com'
-        GIT_URL              = 'https://github.com/yiming2333/playwright_pytest_allure.git'   // 替换为你的仓库
+        GIT_URL              = 'https://github.com/yiming2333/fast_api.git'   // 替换为你的仓库
         GIT_BRANCH           = 'master'
         GIT_CREDENTIALS_ID   = ''   // 如需要可填写 Jenkins 凭证 ID
         REPORT_LINK          = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/allure/"
@@ -197,7 +197,7 @@ def getBaseUrl(String envName) {
     // 根据环境返回 BASE_URL，这里简单映射，你也可以读取 config 文件
     // 因为你的测试通过容器内 mock_server:5000 访问，所以 dev 和 prod 可能相同
     // 如果你有不同环境的 mock 服务，可在此区分
-    return "http://mock_server:5000"
+    return "http://127.0.0.1:8000"
 }
 
 // ================================================================
