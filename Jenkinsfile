@@ -80,13 +80,13 @@ pipeline {
 
         stage('🐳 2. 构建 Docker 镜像') {
             steps {
-                echo "构建 mock_server 和 test 镜像..."
+                echo "构建 app 和 test 镜像..."
                 // 使用 docker compose build（会读取 docker-compose.yml 中的 build 指令）
                 bat "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build"
             }
         }
 
-        stage('🚀 3. 执行 Playwright 测试') {
+        stage('🚀 3. 执行 fast_api 测试') {
             steps {
                 script {
                     // 组装 pytest 参数
