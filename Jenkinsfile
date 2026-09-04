@@ -39,7 +39,7 @@ pipeline {
 
         // ===== 关键：把 Docker Desktop 的 bin 目录加到 PATH =====
         // Docker Desktop 默认装在用户级目录，Jenkins 服务账户（LocalSystem）看不到。
-        // 这里显式拼接，让 docker / docker compose 命令在 Jenkins shell 里可用。
+        // 这里显式拼接，让 docker / docker-compose 命令在 Jenkins shell 里可用。
         // 如果 Docker Desktop 装在别处，改成对应路径即可。
         DOCKER_BIN           = 'C:\\Users\\27088\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
         PATH                 = "${env.DOCKER_BIN};${env.PATH}"
@@ -79,14 +79,14 @@ pipeline {
                                 echo "PATH=$PATH"
                                 which docker 2>/dev/null || true
                                 docker --version 2>&1 || true
-                                docker compose version 2>&1 || true
+                                docker-compose version 2>&1 || true
                             ''',
                             bat : '''
                                 chcp 65001 >nul
                                 echo PATH=%PATH%
                                 where docker
                                 docker --version
-                                docker compose version
+                                docker-compose version
                             '''
                         )
                     }
@@ -133,8 +133,8 @@ pipeline {
             steps {
                 echo "构建 test 镜像（含运行时 + 测试依赖 + 测试代码）..."
                 cmd(
-                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test",
-                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test"
+                    sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test",
+                    bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
                 )
             }
         }
@@ -157,11 +157,11 @@ pipeline {
                     cmd(
                         sh  : """
                             BASE_URL=${baseUrl} \
-                            docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                            docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
                         """,
                         bat : """
                             chcp 65001 >nul
-                            set BASE_URL=${baseUrl}&& docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                            set BASE_URL=${baseUrl}&& docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
                         """
                     )
                 }
@@ -221,8 +221,8 @@ pipeline {
             script {
                 // 关闭容器、清理卷，避免占用资源
                 cmd(
-                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
-                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
+                    sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
+                    bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
                 )
                 archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
             }
@@ -233,8 +233,8 @@ pipeline {
             script {
                 catchError(buildResult: null, stageResult: null) {
                     cmd(
-                        sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
-                        bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                        sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
+                        bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
                     )
                     archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
                 }
