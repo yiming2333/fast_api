@@ -4,7 +4,7 @@
 但响应模型不包含密码，避免敏感信息泄露。
 """
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserBase(BaseModel):
@@ -23,5 +23,7 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     """返回用户信息时的输出模型（不含密码）。"""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: int

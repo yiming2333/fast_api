@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 
-router = APIRouter(prefix="/files", tags=["文件"])
+router = APIRouter(prefix="/demo/files", tags=["演示(文件)"])
 
 
 @router.get("/{file_path:path}", summary="解析文件路径")

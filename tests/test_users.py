@@ -39,7 +39,7 @@ def test_create_user_duplicate_rejected(db_client: TestClient):
     payload = {
         "username": "alice",
         "email": "dup@example.com",
-        "password": "pass",
+        "password": "pass1234",
     }
     resp = db_client.post("/api/v1/users/", json=payload)
     assert resp.status_code == 400
