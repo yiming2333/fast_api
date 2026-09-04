@@ -47,10 +47,10 @@ async def verify_api_key(x_api_key: Annotated[str, Header()]):
         raise HTTPException(status_code=400, detail="X-API-Key invalid")
 
 
-def get_db():
-    """模拟数据库连接依赖（yield 模式）。
+def get_mock_db():
+    """模拟数据库连接依赖（yield 模式）—— 仅用于演示。
 
-    真实场景下应替换为 SQLAlchemy 的 Session 等。
+    真实场景下应使用 app.db.session.get_db（SQLAlchemy AsyncSession）。
     """
     db = "database_connection"
     try:

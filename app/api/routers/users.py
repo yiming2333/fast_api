@@ -5,20 +5,21 @@
 - POST   /users/        创建用户（响应脱敏，不含密码）
 - GET    /users/me      当前登录用户信息（需认证）
 - GET    /users/me/items 当前用户的条目（需认证）
+
+路由层只做参数解析 + 调用 service + 响应序列化；
+业务逻辑（查重、哈希、提交）在 app.services.user_service。
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import logger
-from app.core.security import get_current_active_user, get_password_hash
+from app.core.security import get_current_active_user
 from app.db.session import get_db
-from app.models.user import UserORM
 from app.schemas.auth import User
 from app.schemas.user import UserCreate, UserOut
+from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
 
@@ -26,8 +27,7 @@ router = APIRouter(prefix="/users", tags=["用户管理"])
 @router.get("/", response_model=list[UserOut], summary="用户列表")
 async def list_users(db: Annotated[AsyncSession, Depends(get_db)]):
     """返回用户列表。"""
-    result = await db.execute(select(UserORM))
-    users = result.scalars().all()
+    users = await user_service.list_users(db)
     return [UserOut.model_validate(u) for u in users]
 
 
@@ -41,33 +41,7 @@ async def create_user(
     函数接收 UserCreate（含密码），但响应使用 UserOut（不含密码），
     避免敏感信息出现在 API 响应中。
     """
-    # 检查用户名是否已存在
-    existing = await db.execute(
-        select(UserORM).where(UserORM.username == user.username)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名已存在",
-        )
-
-    obj = UserORM(
-        username=user.username,
-        email=user.email,
-        full_name=user.full_name,
-        hashed_password=get_password_hash(user.password),
-    )
-    db.add(obj)
-    try:
-        await db.commit()
-        await db.refresh(obj)
-    except Exception as exc:
-        await db.rollback()
-        logger.warning("创建用户失败: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="创建用户失败",
-        )
+    obj = await user_service.create_user(db, user)
     return UserOut.model_validate(obj)
 
 

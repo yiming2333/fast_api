@@ -10,6 +10,16 @@ def test_read_root(client: TestClient):
     assert response.json() == {"message": "Hello, FastAPI!"}
 
 
+def test_health_check_healthy(client: TestClient):
+    """/health 检查 DB 连通性，SQLite 内存库可用时返回 healthy。"""
+    response = client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "healthy"
+    assert body["checks"]["api"] == "ok"
+    assert body["checks"]["db"] == "ok"
+
+
 def test_hello_page(client: TestClient):
     """Jinja2 模板渲染返回 HTML。"""
     response = client.get("/hello/world")

@@ -49,7 +49,7 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/').status==200 else sys.exit(1)" || exit 1
+    CMD python -c "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else sys.exit(1)" || exit 1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
 
@@ -64,8 +64,8 @@ USER root
 COPY --chown=app:app tests/ ./tests/
 COPY --chown=app:app pytest.ini ./pytest.ini
 
-# 预创建 allure-results 目录（即使挂载覆盖，也留个底）
-RUN mkdir -p /app/allure-results && chown -R app:app /app/allure-results
+# 预创建 allure-results 与 htmlcov 目录（即使挂载覆盖，也留个底）
+RUN mkdir -p /app/allure-results /app/htmlcov && chown -R app:app /app/allure-results /app/htmlcov
 
 # 切换到普通用户（但如果你在 compose 中用 root 覆盖，此行不生效）
 USER app

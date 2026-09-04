@@ -25,12 +25,14 @@ fake_items_db: list[dict] = [
 
 
 # ---- 用户示例数据（带密码哈希） ----
+# 使用预计算的固定哈希（明文 "secret"），避免每次 import 都执行 bcrypt 哈希计算。
+# 如需更换密码，可用 pwd_context.hash("新密码") 重新生成。
 fake_users_db: dict[str, dict] = {
     "alice": {
         "username": "alice",
         "full_name": "Alice Wonderson",
         "email": "alice@example.com",
-        "hashed_password": pwd_context.hash("secret"),
+        "hashed_password": "$2b$12$Io1b1RxwvtylspqvyCZ.QuNVhuLx2NY.B05HEAR.K87195e0kinUi",
         "disabled": False,
     },
 }

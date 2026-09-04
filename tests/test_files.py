@@ -73,3 +73,28 @@ def test_save_upload_file(client: TestClient, tmp_path, monkeypatch):
     saved = tmp_path / "saved.txt"
     assert saved.exists()
     assert saved.read_bytes() == b"saved-content"
+
+
+def test_upload_rejected_type(client: TestClient):
+    """不在白名单的文件类型应被拒绝（400）。"""
+    resp = client.post(
+        "/api/v1/demo/files/upload",
+        files={"file": ("evil.exe", io.BytesIO(b"MZ"), "application/x-msdownload")},
+    )
+    assert resp.status_code == 400
+    assert "不支持的文件类型" in resp.json()["error"]
+
+
+def test_upload_rejected_too_large(client: TestClient, monkeypatch):
+    """超过大小上限应被拒绝（413）。"""
+    from app.api.routers import files as files_module
+
+    # 临时把上限调到很小，避免真的构造 10MB 数据
+    monkeypatch.setattr(files_module, "MAX_SIZE", 10)
+    resp = client.post(
+        "/api/v1/demo/files/upload",
+        files={"file": ("big.txt", io.BytesIO(b"x" * 100), "text/plain")},
+    )
+    assert resp.status_code == 413
+    assert "文件过大" in resp.json()["error"]
+

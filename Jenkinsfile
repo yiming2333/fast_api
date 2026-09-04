@@ -29,11 +29,14 @@ pipeline {
         COMPOSE_PROJECT_NAME = 'fast_api'
         ALLURE_RESULTS       = 'allure-results'
         ALLURE_REPORT_NAME   = 'AllureReport'
+        COVERAGE_DIR         = 'htmlcov'
+        COVERAGE_REPORT_NAME = 'CoverageReport'
         MAIL_RECIPIENT       = 'yiming_2333@sina.com'
         GIT_URL              = 'https://github.com/yiming2333/fast_api.git'
         GIT_BRANCH           = 'master'
         GIT_CREDENTIALS_ID   = ''
         REPORT_LINK          = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/allure/"
+        COVERAGE_LINK        = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/CoverageReport/"
         DINGTALK_WEBHOOK     = credentials('dingtalk_webhook')
         DINGTALK_KEYWORD     = '测试'
 
@@ -95,21 +98,22 @@ pipeline {
                 stage('1.2 清理工作区') {
                     steps {
                         echo "清理旧报告、缓存..."
-                        cmd(
-                            sh  : '''
-                                rm -rf allure-results allure-report logs __pycache__ .pytest_cache
+                cmd(
+                    sh  : '''
+                                rm -rf allure-results allure-report htmlcov logs __pycache__ .pytest_cache
                                 echo "Workspace cleanup done"
                             ''',
-                            bat : '''
+                    bat : '''
                                 chcp 65001 >nul
                                 if exist allure-results rmdir /s /q allure-results
                                 if exist allure-report rmdir /s /q allure-report
+                                if exist htmlcov rmdir /s /q htmlcov
                                 if exist logs rmdir /s /q logs
                                 if exist __pycache__ rmdir /s /q __pycache__
                                 if exist .pytest_cache rmdir /s /q .pytest_cache
                                 echo Workspace cleanup done
                             '''
-                        )
+                )
                     }
                 }
 
@@ -213,6 +217,31 @@ pipeline {
                        reportBuildPolicy: 'ALWAYS'
             }
         }
+
+        stage('📈 6. 发布覆盖率报告') {
+            steps {
+                echo "正在发布覆盖率报告（pytest-cov HTML）..."
+                script {
+                    // 容器内 pytest 已通过 addopts 生成 htmlcov/，挂载回宿主机
+                    // 用 HTML Publisher 插件发布，构建页左侧出现 "Coverage Report" 链接
+                    try {
+                        publishHTML(target: [
+                            reportDir   : env.COVERAGE_DIR,
+                            reportFiles : 'index.html',
+                            reportName  : env.COVERAGE_REPORT_NAME,
+                            keepAll     : true,
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true
+                        ])
+                        echo "覆盖率报告已发布：${env.COVERAGE_LINK}"
+                    } catch (e) {
+                        echo "publishHTML 失败（HTML Publisher 插件未安装？），改为归档 artifacts：${e.message}"
+                        // Fallback：归档为构建产物，可通过 Artifacts 浏览 htmlcov/index.html
+                        archiveArtifacts artifacts: "${env.COVERAGE_DIR}/**", allowEmptyArchive: true
+                    }
+                }
+            }
+        }
     }
 
     post {
@@ -295,8 +324,9 @@ def sendEmailNotification(String status, String color, String icon) {
                 <li>并发：${params.PARALLEL}</li>
                 <li>触发人：${env.TRIGGER_USER ?: '未知'}</li>
                 <li>测试报告：<a href="${env.REPORT_LINK}">${env.REPORT_LINK}</a></li>
+                <li>覆盖率报告：<a href="${env.COVERAGE_LINK}">${env.COVERAGE_LINK}</a></li>
             </ul>
-            <p>请点击上方链接查看 Allure 测试报告详情。</p>
+            <p>请点击上方链接查看报告详情。</p>
         """,
         mimeType: 'text/html'
     )
@@ -311,6 +341,7 @@ def sendDingTalkNotification(String status, String icon) {
 - **并发**: ${params.PARALLEL}
 - **触发人**: ${env.TRIGGER_USER ?: '未知'}
 - **[📊 查看测试报告](${env.REPORT_LINK})**
+- **[📈 查看覆盖率报告](${env.COVERAGE_LINK})**
 """
     def payload = JsonOutput.toJson([
         msgtype : 'markdown',

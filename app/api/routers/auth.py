@@ -30,7 +30,7 @@ async def login(
     后续请求会自动携带 `Authorization: Bearer <token>`。
     """
     user = await authenticate_user(db, form_data.username, form_data.password)
-    if not user:
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",

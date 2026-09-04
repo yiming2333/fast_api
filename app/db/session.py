@@ -110,7 +110,7 @@ async def init_db(url: str | None = None) -> None:
 
 async def close_engine() -> None:
     """应用关闭时释放连接池。"""
-    global _engine
+    global _engine, _session_maker
     if _engine is not None:
         await _engine.dispose()
         _engine = None

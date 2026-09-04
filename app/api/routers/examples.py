@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.core.dependencies import (
     CommonQueryParams,
     common_parameters,
-    get_db,
+    get_mock_db,
     query_checker,
     verify_api_key,
 )
@@ -243,6 +243,6 @@ async def read_users_with_route_dep():
 
 
 @router.get("/dependencies/yield-db", summary="yield 依赖（资源管理）")
-async def read_with_yield_dep(db: Annotated[str, Depends(get_db)]):
+async def read_with_yield_dep(db: Annotated[str, Depends(get_mock_db)]):
     """使用 yield 的依赖：请求前创建连接，请求后关闭连接。"""
     return {"db": db}

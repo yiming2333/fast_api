@@ -5,18 +5,21 @@
 """
 
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routers import api_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import logger
 from app.core.middleware import register_middleware
-from app.db.session import close_engine, init_db
+from app.db.session import close_engine, get_db, init_db
 from app.db.seed import seed_default_user
 
 
@@ -81,6 +84,31 @@ templates = Jinja2Templates(directory="templates")
 async def read_root():
     """根路径，简单的 Hello 响应。"""
     return {"message": "Hello, FastAPI!"}
+
+
+@app.get("/health", tags=["运维"], summary="健康检查（含数据库连通性）")
+async def health_check(
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """检查 API 与数据库连通性。
+
+    - DB 正常 → 200 `{"status": "healthy", "checks": {"api": "ok", "db": "ok"}}`
+    - DB 异常 → 503 `{"status": "unhealthy", "checks": {"api": "ok", "db": "error"}}`
+
+    供 Docker HEALTHCHECK 与负载均衡探针使用。
+    """
+    checks = {"api": "ok"}
+    try:
+        await db.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as exc:
+        logger.warning("健康检查 DB 探测失败: %s", exc)
+        checks["db"] = "error"
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "checks": checks},
+        )
+    return {"status": "healthy", "checks": checks}
 
 
 @app.get("/hello/{name}", response_class=HTMLResponse, tags=["页面"], summary="Jinja2 模板示例")

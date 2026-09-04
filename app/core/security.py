@@ -51,11 +51,11 @@ async def get_user(db: AsyncSession, username: str) -> UserORM | None:
     return result.scalar_one_or_none()
 
 
-async def authenticate_user(db: AsyncSession, username: str, password: str):
-    """验证用户凭据，成功返回用户，失败返回 False。"""
+async def authenticate_user(db: AsyncSession, username: str, password: str) -> UserORM | None:
+    """验证用户凭据，成功返回用户，失败返回 None。"""
     user = await get_user(db, username)
-    if not user or not verify_password(password, user.hashed_password):
-        return False
+    if user is None or not verify_password(password, user.hashed_password):
+        return None
     return user
 
 

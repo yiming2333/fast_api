@@ -6,6 +6,7 @@
 
 from functools import lru_cache
 from typing import List
+from urllib.parse import quote_plus
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -65,7 +66,6 @@ class Settings(BaseSettings):
         if self.db_url:
             return self.db_url
         # aiomysql 连接串
-        from urllib.parse import quote_plus
         pw = quote_plus(self.db_password) if self.db_password else ""
         return (
             f"mysql+aiomysql://{self.db_user}:{pw}"
