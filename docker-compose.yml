@@ -49,6 +49,7 @@ services:
     volumes:
       - ./allure-results:/app/allure-results
       - ./allure-results:/app/allure-report
+      - ./logs:/app/logs
     deploy:
       resources:
         limits:
