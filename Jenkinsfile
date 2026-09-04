@@ -1,9 +1,12 @@
 import groovy.json.JsonOutput
 
 // ============================================================================
-// 跨平台 Jenkinsfile：直接在 Jenkins agent 上用系统 Python + 已装依赖跑测试
-// 不依赖 Docker（Jenkins 服务账户通常看不到 Docker Desktop 的 PATH）。
-// 不依赖 venv（避开 pip 21.2.3 与现代 pypi SSL 兼容问题）。
+// 跨平台 Jenkinsfile：Jenkins + Docker 跑测试（容器内自带 Python + 依赖）
+//
+// 关键点：Jenkins 在 Windows 上通常以 LocalSystem 服务账户运行，
+// 该账户的 PATH 默认不包含 Docker Desktop 的 bin 目录
+// （Docker Desktop 默认装在 %LOCALAPPDATA%\Programs\DockerDesktop\resources\bin）。
+// 通过在 environment 块显式把 docker 路径加进 PATH 解决。
 // ============================================================================
 
 pipeline {
@@ -22,6 +25,8 @@ pipeline {
     }
 
     environment {
+        // Docker Compose 项目名（避免与其它项目冲突）
+        COMPOSE_PROJECT_NAME = 'fast_api'
         ALLURE_RESULTS       = 'allure-results'
         ALLURE_REPORT_NAME   = 'AllureReport'
         MAIL_RECIPIENT       = 'yiming_2333@sina.com'
@@ -31,6 +36,13 @@ pipeline {
         REPORT_LINK          = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/allure/"
         DINGTALK_WEBHOOK     = credentials('dingtalk_webhook')
         DINGTALK_KEYWORD     = '测试'
+
+        // ===== 关键：把 Docker Desktop 的 bin 目录加到 PATH =====
+        // Docker Desktop 默认装在用户级目录，Jenkins 服务账户（LocalSystem）看不到。
+        // 这里显式拼接，让 docker / docker compose 命令在 Jenkins shell 里可用。
+        // 如果 Docker Desktop 装在别处，改成对应路径即可。
+        DOCKER_BIN           = 'C:\\Users\\27088\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
+        PATH                 = "${env.DOCKER_BIN};${env.PATH}"
     }
 
     stages {
@@ -56,24 +68,25 @@ pipeline {
 
                 stage('1.1 Preflight 诊断') {
                     steps {
-                        // 打印环境信息，便于后续排查 PATH / 工具缺失问题
                         script {
                             echo "========== 环境诊断 =========="
                             echo "NODE_NAME: ${env.NODE_NAME}"
                             echo "WORKSPACE: ${env.WORKSPACE}"
+                            echo "DOCKER_BIN: ${env.DOCKER_BIN}"
                         }
                         cmd(
                             sh  : '''
                                 echo "PATH=$PATH"
-                                which python python3 py 2>/dev/null || true
-                                python --version 2>&1 || true
+                                which docker 2>/dev/null || true
+                                docker --version 2>&1 || true
+                                docker compose version 2>&1 || true
                             ''',
                             bat : '''
                                 chcp 65001 >nul
                                 echo PATH=%PATH%
-                                where python 2>nul
-                                where py 2>nul
-                                py -3 --version 2>nul
+                                where docker
+                                docker --version
+                                docker compose version
                             '''
                         )
                     }
@@ -116,31 +129,13 @@ pipeline {
             }
         }
 
-        stage('🐍 2. 探测 Python 环境') {
+        stage('🐳 2. 构建 Docker 镜像') {
             steps {
-                script {
-                    // 动态获取 Python 用户级 site-packages 路径
-                    // Jenkins 服务通常以 LocalSystem 跑，默认不读用户级 site-packages；
-                    // 用 PYTHONPATH 显式包含，让依赖（fastapi/pytest/allure）可被 import。
-                    if (isUnix()) {
-                        env.PYTHON_BIN  = 'python3'
-                        env.PYTHONPATH  = ''
-                    } else {
-                        // Windows: 优先用 py 启动器（C:\\Windows\\py.exe 全系统可见）
-                        def userSite = bat(
-                            script: 'py -3 -c "import site; print(site.USER_SITE)"',
-                            returnStdout: true
-                        ).trim()
-                        echo "Detected USER_SITE: ${userSite}"
-                        env.PYTHONPATH = userSite
-                        env.PYTHON_BIN  = 'py -3'
-                    }
-                    // 自检：依赖能否 import
-                    cmd(
-                        sh  : "${env.PYTHON_BIN} -c 'import fastapi, pytest, allure; print(\"deps OK\")'",
-                        bat : "${env.PYTHON_BIN} -c \"import fastapi, pytest, allure; print('deps OK')\""
-                    )
-                }
+                echo "构建 test 镜像（含运行时 + 测试依赖 + 测试代码）..."
+                cmd(
+                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test",
+                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test"
+                )
             }
         }
 
@@ -153,12 +148,21 @@ pipeline {
                         case 'auto': xdistArg = '-n auto'; break
                         default:     xdistArg = "-n ${params.PARALLEL}"; break
                     }
-                    def testCmd = "${env.PYTHON_BIN} -m pytest ${xdistArg} -v --alluredir=${env.ALLURE_RESULTS}"
-                    echo "执行测试命令: ${testCmd}"
+                    // 容器内 pytest 输出 allure 结果到 /app/allure-results，
+                    // 已通过 docker-compose.yml 挂载到宿主机 ./allure-results
+                    def testCmd = "pytest ${xdistArg} -v --alluredir=/app/allure-results"
+                    echo "执行测试命令 (容器内): ${testCmd}"
 
+                    def baseUrl = getBaseUrl(env.ENV)
                     cmd(
-                        sh  : testCmd,
-                        bat : "chcp 65001 >nul && ${testCmd}"
+                        sh  : """
+                            BASE_URL=${baseUrl} \
+                            docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                        """,
+                        bat : """
+                            chcp 65001 >nul
+                            set BASE_URL=${baseUrl}&& docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                        """
                     )
                 }
             }
@@ -179,7 +183,7 @@ pipeline {
                         Build.Number=${env.BUILD_NUMBER}
                         Git.Branch=${env.GIT_BRANCH}
                         Base.URL=${getBaseUrl(env.ENV)}
-                        OS=${isUnix() ? 'Linux' : 'Windows'}
+                        OS=Linux (Docker)
                     """.stripIndent().trim()
                     writeFile file: "${env.ALLURE_RESULTS}/environment.properties", text: envProps, encoding: 'UTF-8'
 
@@ -214,20 +218,33 @@ pipeline {
     post {
         always {
             echo "========== 🧹 收尾清理 =========="
-            // 不清理 venv（没创建）；allure-results 保留给报告用
-            archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
-        }
-
-        success {
-            echo "测试全部通过"
-            script { notifyAll('SUCCESS', 'green', '✅') }
+            script {
+                // 关闭容器、清理卷，避免占用资源
+                cmd(
+                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
+                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
+                )
+                archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
+            }
         }
 
         failure {
             echo "存在失败的测试用例"
             script {
+                catchError(buildResult: null, stageResult: null) {
+                    cmd(
+                        sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
+                        bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                    )
+                    archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
+                }
                 notifyAll('FAILURE', 'red', '❌')
             }
+        }
+
+        success {
+            echo "测试全部通过"
+            script { notifyAll('SUCCESS', 'green', '✅') }
         }
     }
 }
