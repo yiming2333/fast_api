@@ -56,10 +56,21 @@ pipeline {
                 stage('1.1 清理工作区') {
                     steps {
                         echo "清理旧报告、日志、缓存..."
-                        sh '''
-                            rm -rf allure-results allure-report logs __pycache__ .pytest_cache
-                            echo "✅ 工作区清理完成"
-                        '''
+                        // Unix / Windows 各自的清理命令
+                        cmd(
+                            sh  : '''
+                                rm -rf allure-results allure-report logs __pycache__ .pytest_cache
+                                echo "✅ 工作区清理完成"
+                            ''',
+                            bat : '''
+                                if exist allure-results rmdir /s /q allure-results
+                                if exist allure-report rmdir /s /q allure-report
+                                if exist logs rmdir /s /q logs
+                                if exist __pycache__ rmdir /s /q __pycache__
+                                if exist .pytest_cache rmdir /s /q .pytest_cache
+                                echo ✅ 工作区清理完成
+                            '''
+                        )
                     }
                 }
 
@@ -82,7 +93,11 @@ pipeline {
         stage('🐳 2. 构建 Docker 镜像') {
             steps {
                 echo "构建 app 和 test 镜像..."
-                sh "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
+                // docker-compose 在两个平台命令名一致，只是 shell 不同
+                cmd(
+                    sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test",
+                    bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
+                )
             }
         }
 
@@ -100,10 +115,16 @@ pipeline {
                     echo "执行测试命令: ${testCmd}"
 
                     def baseUrl = getBaseUrl(env.ENV)
-                    sh """
-                        BASE_URL=${baseUrl} \
-                        docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
-                    """
+                    // 注意：Unix 用 inline env，Windows 必须用 set
+                    cmd(
+                        sh  : """
+                            BASE_URL=${baseUrl} \
+                            docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                        """,
+                        bat : """
+                            set BASE_URL=${baseUrl}&& docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                        """
+                    )
                 }
             }
         }
@@ -112,7 +133,10 @@ pipeline {
             steps {
                 script {
                     // 创建 allure-results 目录（如果不存在）
-                    sh "mkdir -p ${env.ALLURE_RESULTS}"
+                    cmd(
+                        sh  : "mkdir -p ${env.ALLURE_RESULTS}",
+                        bat : "if not exist ${env.ALLURE_RESULTS} mkdir ${env.ALLURE_RESULTS}"
+                    )
 
                     // environment.properties
                     def envProps = """
@@ -159,7 +183,12 @@ pipeline {
         always {
             echo "========== 🧹 收尾清理 =========="
             script {
-                sh "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
+                // docker-compose down 两平台命令一致，仅 shell 不同
+                cmd(
+                    sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
+                    bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
+                )
+                // Windows 上没有 logs/ 目录时 archiveArtifacts 会因 allowEmptyArchive:true 而跳过
                 archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
             }
         }
@@ -173,7 +202,11 @@ pipeline {
             echo "❌ 存在失败的测试用例！"
             script {
                 catchError(buildResult: null, stageResult: null) {
-                    sh "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                    // 重定向语法两平台都支持
+                    cmd(
+                        sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
+                        bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                    )
                     archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
                 }
                 notifyAll('FAILURE', 'red', '❌')
@@ -185,6 +218,17 @@ pipeline {
 // ================================================================
 //  辅助函数
 // ================================================================
+
+// 跨平台命令执行：Unix 走 sh，Windows 走 bat
+// 用法：cmd(sh: '...', bat: '...')
+def cmd(Map opts) {
+    if (isUnix()) {
+        sh opts.sh
+    } else {
+        bat opts.bat
+    }
+}
+
 def getBaseUrl(String envName) {
     // 根据环境返回 BASE_URL，这里简单映射，你也可以读取 config 文件
     return "http://127.0.0.1:8000"

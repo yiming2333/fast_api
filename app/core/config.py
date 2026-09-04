@@ -49,10 +49,11 @@ class Settings(BaseSettings):
     # 直接提供完整 URL 时优先使用；否则按字段拼接
     db_url: str = ""
     # 若 db_url 为空，则用以下字段拼接 mysql+aiomysql://user:password@host:port/database
+    # 敏感字段默认值为空，强制通过 .env 注入；缺失时会在 lifespan 中给出明确日志
     db_host: str = "127.0.0.1"
     db_port: int = 3306
     db_user: str = "root"
-    db_password: str = ""
+    db_password: str = ""  # 必须通过 .env / 环境变量提供
     db_name: str = "fast_api"
 
     # 上传文件保存目录
