@@ -57,18 +57,21 @@ pipeline {
                     steps {
                         echo "清理旧报告、日志、缓存..."
                         // Unix / Windows 各自的清理命令
+                        // bat 顶部 chcp 65001 切到 UTF-8，避免 emoji/中文乱码；
+                        // 同时 bat 内 echo 一律用英文，规避 cp936 控制台问题
                         cmd(
                             sh  : '''
                                 rm -rf allure-results allure-report logs __pycache__ .pytest_cache
-                                echo "✅ 工作区清理完成"
+                                echo "Workspace cleanup done"
                             ''',
                             bat : '''
+                                chcp 65001 >nul
                                 if exist allure-results rmdir /s /q allure-results
                                 if exist allure-report rmdir /s /q allure-report
                                 if exist logs rmdir /s /q logs
                                 if exist __pycache__ rmdir /s /q __pycache__
                                 if exist .pytest_cache rmdir /s /q .pytest_cache
-                                echo ✅ 工作区清理完成
+                                echo Workspace cleanup done
                             '''
                         )
                     }
@@ -93,10 +96,10 @@ pipeline {
         stage('🐳 2. 构建 Docker 镜像') {
             steps {
                 echo "构建 app 和 test 镜像..."
-                // docker-compose 在两个平台命令名一致，只是 shell 不同
+                // docker compose 在两个平台命令名一致，只是 shell 不同
                 cmd(
-                    sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test",
-                    bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
+                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test",
+                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test"
                 )
             }
         }
@@ -119,10 +122,10 @@ pipeline {
                     cmd(
                         sh  : """
                             BASE_URL=${baseUrl} \
-                            docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                            docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
                         """,
                         bat : """
-                            set BASE_URL=${baseUrl}&& docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
+                            set BASE_URL=${baseUrl}&& docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
                         """
                     )
                 }
@@ -183,10 +186,10 @@ pipeline {
         always {
             echo "========== 🧹 收尾清理 =========="
             script {
-                // docker-compose down 两平台命令一致，仅 shell 不同
+                // docker compose down 两平台命令一致，仅 shell 不同
                 cmd(
-                    sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
-                    bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
+                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
+                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
                 )
                 // Windows 上没有 logs/ 目录时 archiveArtifacts 会因 allowEmptyArchive:true 而跳过
                 archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
@@ -204,8 +207,8 @@ pipeline {
                 catchError(buildResult: null, stageResult: null) {
                     // 重定向语法两平台都支持
                     cmd(
-                        sh  : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
-                        bat : "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                        sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
+                        bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
                     )
                     archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
                 }
