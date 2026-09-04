@@ -1,5 +1,11 @@
 import groovy.json.JsonOutput
 
+// ============================================================================
+// 跨平台 Jenkinsfile：直接在 Jenkins agent 上用系统 Python + 已装依赖跑测试
+// 不依赖 Docker（Jenkins 服务账户通常看不到 Docker Desktop 的 PATH）。
+// 不依赖 venv（避开 pip 21.2.3 与现代 pypi SSL 兼容问题）。
+// ============================================================================
+
 pipeline {
     agent any
 
@@ -16,19 +22,15 @@ pipeline {
     }
 
     environment {
-        // Docker Compose 项目名（避免与其它项目冲突）
-        COMPOSE_PROJECT_NAME = 'fast_api'
         ALLURE_RESULTS       = 'allure-results'
         ALLURE_REPORT_NAME   = 'AllureReport'
         MAIL_RECIPIENT       = 'yiming_2333@sina.com'
-        GIT_URL              = 'https://github.com/yiming2333/fast_api.git'   // 替换为你的仓库
+        GIT_URL              = 'https://github.com/yiming2333/fast_api.git'
         GIT_BRANCH           = 'master'
-        GIT_CREDENTIALS_ID   = ''   // 如需要可填写 Jenkins 凭证 ID
+        GIT_CREDENTIALS_ID   = ''
         REPORT_LINK          = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/allure/"
-        // 钉钉配置（与原来相同，从凭证读取）
         DINGTALK_WEBHOOK     = credentials('dingtalk_webhook')
         DINGTALK_KEYWORD     = '测试'
-        // 注意：ENV 环境变量在后面的 script 中动态设置
     }
 
     stages {
@@ -37,15 +39,13 @@ pipeline {
                 stage('1.0 👤 获取构建用户') {
                     steps {
                         script {
-                            // 设置 ENV（如果 params.ENV 未定义则默认 dev）
                             env.ENV = params.ENV ?: 'dev'
-
                             try {
                                 wrap([$class: 'BuildUser']) {
                                     env.TRIGGER_USER = env.BUILD_USER_ID ?: 'unknown'
                                 }
                             } catch (e) {
-                                echo "⚠️ 无法获取构建用户: ${e.message}"
+                                echo "无法获取构建用户: ${e.message}"
                                 env.TRIGGER_USER = 'unknown'
                             }
                             echo "本次构建触发人: ${env.TRIGGER_USER}"
@@ -53,12 +53,35 @@ pipeline {
                         }
                     }
                 }
-                stage('1.1 清理工作区') {
+
+                stage('1.1 Preflight 诊断') {
                     steps {
-                        echo "清理旧报告、日志、缓存..."
-                        // Unix / Windows 各自的清理命令
-                        // bat 顶部 chcp 65001 切到 UTF-8，避免 emoji/中文乱码；
-                        // 同时 bat 内 echo 一律用英文，规避 cp936 控制台问题
+                        // 打印环境信息，便于后续排查 PATH / 工具缺失问题
+                        script {
+                            echo "========== 环境诊断 =========="
+                            echo "NODE_NAME: ${env.NODE_NAME}"
+                            echo "WORKSPACE: ${env.WORKSPACE}"
+                        }
+                        cmd(
+                            sh  : '''
+                                echo "PATH=$PATH"
+                                which python python3 py 2>/dev/null || true
+                                python --version 2>&1 || true
+                            ''',
+                            bat : '''
+                                chcp 65001 >nul
+                                echo PATH=%PATH%
+                                where python 2>nul
+                                where py 2>nul
+                                py -3 --version 2>nul
+                            '''
+                        )
+                    }
+                }
+
+                stage('1.2 清理工作区') {
+                    steps {
+                        echo "清理旧报告、缓存..."
                         cmd(
                             sh  : '''
                                 rm -rf allure-results allure-report logs __pycache__ .pytest_cache
@@ -77,7 +100,7 @@ pipeline {
                     }
                 }
 
-                stage('1.2 拉取代码') {
+                stage('1.3 拉取代码') {
                     options { retry(3) }
                     steps {
                         echo "正在从 Git 拉取代码 (${env.GIT_BRANCH})..."
@@ -93,40 +116,49 @@ pipeline {
             }
         }
 
-        stage('🐳 2. 构建 Docker 镜像') {
+        stage('🐍 2. 探测 Python 环境') {
             steps {
-                echo "构建 app 和 test 镜像..."
-                // docker compose 在两个平台命令名一致，只是 shell 不同
-                cmd(
-                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test",
-                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} build test"
-                )
+                script {
+                    // 动态获取 Python 用户级 site-packages 路径
+                    // Jenkins 服务通常以 LocalSystem 跑，默认不读用户级 site-packages；
+                    // 用 PYTHONPATH 显式包含，让依赖（fastapi/pytest/allure）可被 import。
+                    if (isUnix()) {
+                        env.PYTHON_BIN  = 'python3'
+                        env.PYTHONPATH  = ''
+                    } else {
+                        // Windows: 优先用 py 启动器（C:\\Windows\\py.exe 全系统可见）
+                        def userSite = bat(
+                            script: 'py -3 -c "import site; print(site.USER_SITE)"',
+                            returnStdout: true
+                        ).trim()
+                        echo "Detected USER_SITE: ${userSite}"
+                        env.PYTHONPATH = userSite
+                        env.PYTHON_BIN  = 'py -3'
+                    }
+                    // 自检：依赖能否 import
+                    cmd(
+                        sh  : "${env.PYTHON_BIN} -c 'import fastapi, pytest, allure; print(\"deps OK\")'",
+                        bat : "${env.PYTHON_BIN} -c \"import fastapi, pytest, allure; print('deps OK')\""
+                    )
+                }
             }
         }
 
         stage('🚀 3. 执行 fast_api 测试') {
             steps {
                 script {
-                    // 组装 pytest 参数
                     def xdistArg = ''
                     switch (params.PARALLEL) {
                         case 'off':  xdistArg = ''; break
                         case 'auto': xdistArg = '-n auto'; break
                         default:     xdistArg = "-n ${params.PARALLEL}"; break
                     }
-                    def testCmd = "pytest ${xdistArg} -v --alluredir=/app/allure-results"
+                    def testCmd = "${env.PYTHON_BIN} -m pytest ${xdistArg} -v --alluredir=${env.ALLURE_RESULTS}"
                     echo "执行测试命令: ${testCmd}"
 
-                    def baseUrl = getBaseUrl(env.ENV)
-                    // 注意：Unix 用 inline env，Windows 必须用 set
                     cmd(
-                        sh  : """
-                            BASE_URL=${baseUrl} \
-                            docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
-                        """,
-                        bat : """
-                            set BASE_URL=${baseUrl}&& docker compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
-                        """
+                        sh  : testCmd,
+                        bat : "chcp 65001 >nul && ${testCmd}"
                     )
                 }
             }
@@ -135,13 +167,11 @@ pipeline {
         stage('📝 4. 写入 Allure 元数据') {
             steps {
                 script {
-                    // 创建 allure-results 目录（如果不存在）
                     cmd(
                         sh  : "mkdir -p ${env.ALLURE_RESULTS}",
                         bat : "if not exist ${env.ALLURE_RESULTS} mkdir ${env.ALLURE_RESULTS}"
                     )
 
-                    // environment.properties
                     def envProps = """
                         Environment=${env.ENV}
                         Parallel.Mode=${params.PARALLEL}
@@ -149,11 +179,10 @@ pipeline {
                         Build.Number=${env.BUILD_NUMBER}
                         Git.Branch=${env.GIT_BRANCH}
                         Base.URL=${getBaseUrl(env.ENV)}
-                        OS=Linux (Docker)
+                        OS=${isUnix() ? 'Linux' : 'Windows'}
                     """.stripIndent().trim()
                     writeFile file: "${env.ALLURE_RESULTS}/environment.properties", text: envProps, encoding: 'UTF-8'
 
-                    // executor.json
                     def executorData = [
                         name       : 'Jenkins',
                         type       : 'jenkins',
@@ -166,7 +195,7 @@ pipeline {
                     ]
                     def jsonStr = JsonOutput.toJson(executorData)
                     writeFile file: "${env.ALLURE_RESULTS}/executor.json", text: jsonStr, encoding: 'UTF-8'
-                    echo "✅ Allure 元数据已写入"
+                    echo "Allure 元数据已写入"
                 }
             }
         }
@@ -185,33 +214,18 @@ pipeline {
     post {
         always {
             echo "========== 🧹 收尾清理 =========="
-            script {
-                // docker compose down 两平台命令一致，仅 shell 不同
-                cmd(
-                    sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v",
-                    bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
-                )
-                // Windows 上没有 logs/ 目录时 archiveArtifacts 会因 allowEmptyArchive:true 而跳过
-                archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
-            }
+            // 不清理 venv（没创建）；allure-results 保留给报告用
+            archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
         }
 
         success {
-            echo "✅ 测试全部通过！"
+            echo "测试全部通过"
             script { notifyAll('SUCCESS', 'green', '✅') }
         }
 
         failure {
-            echo "❌ 存在失败的测试用例！"
+            echo "存在失败的测试用例"
             script {
-                catchError(buildResult: null, stageResult: null) {
-                    // 重定向语法两平台都支持
-                    cmd(
-                        sh  : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log",
-                        bat : "docker compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
-                    )
-                    archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
-                }
                 notifyAll('FAILURE', 'red', '❌')
             }
         }
@@ -233,7 +247,6 @@ def cmd(Map opts) {
 }
 
 def getBaseUrl(String envName) {
-    // 根据环境返回 BASE_URL，这里简单映射，你也可以读取 config 文件
     return "http://127.0.0.1:8000"
 }
 
@@ -244,12 +257,12 @@ def notifyAll(String status, String color, String icon) {
     try {
         sendEmailNotification(status, color, icon)
     } catch (e) {
-        echo "⚠️ 邮件发送失败: ${e.message}"
+        echo "邮件发送失败: ${e.message}"
     }
     try {
         sendDingTalkNotification(status, icon)
     } catch (e) {
-        echo "⚠️ 钉钉发送失败: ${e.message}"
+        echo "钉钉发送失败: ${e.message}"
     }
 }
 
