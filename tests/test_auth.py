@@ -1,11 +1,14 @@
-"""认证路由测试：登录、令牌校验、凭据错误处理。"""
+"""认证路由测试：登录、令牌校验、凭据错误处理。
+
+认证现在走真实数据库（UserORM），所以需要 db_client fixture。
+"""
 
 from fastapi.testclient import TestClient
 
 
-def test_login_success(client: TestClient):
+def test_login_success(db_client: TestClient):
     """正确用户名密码换取 JWT。"""
-    resp = client.post(
+    resp = db_client.post(
         "/api/v1/auth/token",
         data={"username": "alice", "password": "secret"},
     )
@@ -15,8 +18,8 @@ def test_login_success(client: TestClient):
     assert body["access_token"].count(".") == 2  # JWT 三段式
 
 
-def test_login_wrong_password(client: TestClient):
-    resp = client.post(
+def test_login_wrong_password(db_client: TestClient):
+    resp = db_client.post(
         "/api/v1/auth/token",
         data={"username": "alice", "password": "wrong"},
     )
@@ -24,17 +27,17 @@ def test_login_wrong_password(client: TestClient):
     assert resp.headers["www-authenticate"] == "Bearer"
 
 
-def test_login_unknown_user(client: TestClient):
-    resp = client.post(
+def test_login_unknown_user(db_client: TestClient):
+    resp = db_client.post(
         "/api/v1/auth/token",
         data={"username": "nobody", "password": "whatever"},
     )
     assert resp.status_code == 401
 
 
-def test_login_requires_form_data(client: TestClient):
+def test_login_requires_form_data(db_client: TestClient):
     """OAuth2PasswordRequestForm 必须以表单形式提交。"""
-    resp = client.post(
+    resp = db_client.post(
         "/api/v1/auth/token",
         json={"username": "alice", "password": "secret"},
     )
@@ -42,13 +45,13 @@ def test_login_requires_form_data(client: TestClient):
     assert resp.status_code == 422
 
 
-def test_token_carries_username_claim(client: TestClient):
+def test_token_carries_username_claim(db_client: TestClient):
     """JWT payload 中 sub 应为用户名。"""
     from jose import jwt
 
     from app.core.config import settings
 
-    resp = client.post(
+    resp = db_client.post(
         "/api/v1/auth/token",
         data={"username": "alice", "password": "secret"},
     )

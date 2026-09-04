@@ -26,7 +26,7 @@ from app.core.dependencies import (
 from app.core.exceptions import UnicornException
 from app.schemas.item import Image, Offer
 
-router = APIRouter(prefix="/examples", tags=["示例"])
+router = APIRouter(prefix="/demo/examples", tags=["演示(示例)"])
 
 
 # ===== 复合模型 =====
@@ -154,7 +154,7 @@ async def read_headers_and_cookies(
 # ===== 异常处理器与自定义响应 =====
 @router.get("/responses/redirect", summary="重定向示例")
 async def redirect():
-    return RedirectResponse(url="/api/v1/items/")
+    return RedirectResponse(url="/api/v1/demo/items/")
 
 
 @router.get("/responses/unicorns/{name}", summary="自定义异常示例")

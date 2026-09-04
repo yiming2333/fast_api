@@ -18,7 +18,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """创建用户时的输入模型（包含密码）。"""
 
-    password: str
+    password: str = Field(min_length=6, max_length=128, description="密码，至少 6 位")
 
 
 class UserOut(UserBase):

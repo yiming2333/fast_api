@@ -22,6 +22,9 @@ python-multipart>=0.0.6
 aiofiles==25.1.0
 jinja2>=3.1.2
 
+# 数据库迁移
+alembic>=1.13.0
+
 # 测试相关（开发依赖，可通过 -r requirements-dev.txt 单独安装）
 pytest>=9.0.0
 pytest-xdist==3.8.0

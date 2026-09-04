@@ -17,6 +17,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import logger
 from app.core.middleware import register_middleware
 from app.db.session import close_engine, init_db
+from app.db.seed import seed_default_user
 
 
 @asynccontextmanager
@@ -30,9 +31,15 @@ async def lifespan(app: FastAPI):
         # MySQL 连不上时只告警，不阻断应用启动
         # 这样内存字典演示路由仍然可用；真实 DB 路由调用时会返回 503
         logger.warning(
-            "数据库初始化失败（应用仍可启动）: %s — 请检查 .env 中的 DB_HOST/DB_PASSWORD/DB_NAME 配置",
+            "数据库初始化失败（应用仍可启动）: %s",
             exc,
         )
+
+    # 创建默认用户（如果数据库可用）
+    try:
+        await seed_default_user()
+    except Exception as exc:
+        logger.warning("种子数据写入失败: %s", exc)
 
     try:
         yield

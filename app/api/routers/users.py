@@ -9,29 +9,66 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import get_current_active_user
+from app.core.logging import logger
+from app.core.security import get_current_active_user, get_password_hash
+from app.db.session import get_db
+from app.models.user import UserORM
 from app.schemas.auth import User
 from app.schemas.user import UserCreate, UserOut
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
 
 
-@router.get("/", summary="用户列表")
-async def list_users():
-    """返回示例用户列表。"""
-    return [{"username": "Rick"}, {"username": "Morty"}]
+@router.get("/", response_model=list[UserOut], summary="用户列表")
+async def list_users(db: Annotated[AsyncSession, Depends(get_db)]):
+    """返回用户列表。"""
+    result = await db.execute(select(UserORM))
+    users = result.scalars().all()
+    return [UserOut.model_validate(u) for u in users]
 
 
-@router.post("/", response_model=UserOut, summary="创建用户")
-async def create_user(user: UserCreate):
-    """创建用户。
+@router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED, summary="创建用户")
+async def create_user(
+    user: UserCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """创建用户，密码自动哈希存储。
 
     函数接收 UserCreate（含密码），但响应使用 UserOut（不含密码），
     避免敏感信息出现在 API 响应中。
     """
-    return {"id": 1, **user.model_dump(exclude={"password"})}
+    # 检查用户名是否已存在
+    existing = await db.execute(
+        select(UserORM).where(UserORM.username == user.username)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名已存在",
+        )
+
+    obj = UserORM(
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        hashed_password=get_password_hash(user.password),
+    )
+    db.add(obj)
+    try:
+        await db.commit()
+        await db.refresh(obj)
+    except Exception as exc:
+        await db.rollback()
+        logger.warning("创建用户失败: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="创建用户失败",
+        )
+    return UserOut.model_validate(obj)
 
 
 @router.get("/me", response_model=User, summary="获取当前登录用户信息")

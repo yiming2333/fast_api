@@ -5,7 +5,7 @@
 
 from fastapi import APIRouter, File, Form, UploadFile
 
-router = APIRouter(prefix="/forms", tags=["表单"])
+router = APIRouter(prefix="/demo/forms", tags=["演示(表单)"])
 
 
 @router.post("/login", summary="表单登录示例")

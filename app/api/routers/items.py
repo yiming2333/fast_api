@@ -14,10 +14,10 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from fastapi.responses import JSONResponse
 
-from app.db.session import items_db, fake_items_db
+from app.db.fake_data import items_db, fake_items_db
 from app.schemas.item import Item
 
-router = APIRouter(prefix="/items", tags=["商品管理"])
+router = APIRouter(prefix="/demo/items", tags=["演示(内存)"])
 
 
 @router.get("/", summary="商品列表", description="支持分页查询商品列表")

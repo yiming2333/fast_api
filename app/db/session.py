@@ -5,8 +5,6 @@
 - 事务边界由调用侧控制（CRUD 函数内显式 commit/rollback）
 - 引擎采用延迟初始化（lazy），便于测试时通过 dependency_overrides
   替换为 SQLite 内存数据库（无需真实 MySQL 即可跑通全部测试）
-- 原内存示例数据（items_db / fake_items_db / fake_users_db / pwd_context）
-  保留，供不依赖真实数据库的演示路由继续使用
 """
 
 from collections.abc import AsyncGenerator
@@ -16,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
-from app.db.fake_data import fake_items_db, fake_users_db, items_db, pwd_context
 
 
 # ---------------------------------------------------------------------------
@@ -120,9 +117,4 @@ async def close_engine() -> None:
         _session_maker = None
 
 
-# ---------------------------------------------------------------------------
-# 便捷别名：方便 router 写 Depends(get_db)
-# ---------------------------------------------------------------------------
-from fastapi import Depends  # noqa: E402
-
-AsyncSessionDep = Depends(get_db)
+AsyncSessionDep = Depends(get_db)  # noqa: E501 — 便捷别名，方便 router 写 Depends(get_db)

@@ -17,7 +17,6 @@ pipeline {
 
     environment {
         // Docker Compose 项目名（避免与其它项目冲突）
-        PATH = "C:\\Users\\27088\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin;${env.PATH}"
         COMPOSE_PROJECT_NAME = 'fast_api'
         ALLURE_RESULTS       = 'allure-results'
         ALLURE_REPORT_NAME   = 'AllureReport'
@@ -57,15 +56,9 @@ pipeline {
                 stage('1.1 清理工作区') {
                     steps {
                         echo "清理旧报告、日志、缓存..."
-                        bat '''
-                            @echo off
-                            chcp 65001 >nul
-                            if exist "allure-results"   rmdir /s /q allure-results
-                            if exist "allure-report"    rmdir /s /q allure-report
-                            if exist "logs"             rmdir /s /q logs
-                            if exist "__pycache__"      rmdir /s /q __pycache__
-                            if exist ".pytest_cache"    rmdir /s /q .pytest_cache
-                            echo ✅ 工作区清理完成
+                        sh '''
+                            rm -rf allure-results allure-report logs __pycache__ .pytest_cache
+                            echo "✅ 工作区清理完成"
                         '''
                     }
                 }
@@ -89,7 +82,7 @@ pipeline {
         stage('🐳 2. 构建 Docker 镜像') {
             steps {
                 echo "构建 app 和 test 镜像..."
-                bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
+                sh "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
             }
         }
 
@@ -107,9 +100,8 @@ pipeline {
                     echo "执行测试命令: ${testCmd}"
 
                     def baseUrl = getBaseUrl(env.ENV)
-                    bat """
-                        chcp 65001 >nul
-                        set BASE_URL=${baseUrl}
+                    sh """
+                        BASE_URL=${baseUrl} \
                         docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
                     """
                 }
@@ -120,7 +112,7 @@ pipeline {
             steps {
                 script {
                     // 创建 allure-results 目录（如果不存在）
-                    bat "chcp 65001 >nul && if not exist \"${env.ALLURE_RESULTS}\" mkdir ${env.ALLURE_RESULTS}"
+                    sh "mkdir -p ${env.ALLURE_RESULTS}"
 
                     // environment.properties
                     def envProps = """
@@ -167,7 +159,7 @@ pipeline {
         always {
             echo "========== 🧹 收尾清理 =========="
             script {
-                bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
+                sh "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
                 archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
             }
         }
@@ -181,7 +173,7 @@ pipeline {
             echo "❌ 存在失败的测试用例！"
             script {
                 catchError(buildResult: null, stageResult: null) {
-                    bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                    sh "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
                     archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
                 }
                 notifyAll('FAILURE', 'red', '❌')

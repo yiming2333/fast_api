@@ -1,6 +1,6 @@
 """SQLAlchemy 版 Item CRUD 路由。
 
-路径：/api/v1/items/db/... （保留旧路由 /api/v1/items/... 作为内存字典演示）
+路径：/api/v1/items/db/...
 职责：完整 REST 语义 —— list / create / get / update / delete
 """
 
@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import verify_api_key
+from app.core.logging import logger
 from app.db.session import get_db
 from app.models.item import Item as ItemORM
 from app.schemas.item_db import ItemCreate, ItemListOut, ItemOut, ItemUpdate
@@ -22,24 +23,24 @@ router = APIRouter(prefix="/items/db", tags=["商品(DB)"])
 def _db_error(exc: Exception) -> HTTPException:
     """把数据库错误翻译成用户能看懂的 HTTP 错误。
 
-    - OperationalError → 503 Service Unavailable（MySQL 连不上 / 密码错 / 库不存在）
-    - IntegrityError   → 400 Bad Request（唯一约束冲突等）
-    - 其他            → 500 Internal Server Error
+    内部错误详情只写日志，返回给客户端的是脱敏后的通用提示。
     """
-    hint = "请检查 .env 中的 DB_HOST / DB_PASSWORD / DB_NAME 配置"
     if isinstance(exc, OperationalError):
+        logger.error("数据库连接失败: %s", exc)
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"数据库连接失败：{hint} — {exc}",
+            detail="数据库服务暂时不可用，请稍后重试",
         )
     if isinstance(exc, IntegrityError):
+        logger.warning("数据完整性冲突: %s", exc)
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"数据完整性错误：{exc}",
+            detail="数据冲突，可能是重复记录",
         )
+    logger.exception("未知数据库错误: %s", exc)
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"数据库错误：{exc}",
+        detail="服务器内部错误",
     )
 
 
@@ -100,7 +101,7 @@ async def create_item(
     payload: ItemCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """创建新商品。需要 X-API-Key: secret-key 请求头。"""
+    """创建新商品。需要 X-API-Key: *** 请求头。"""
     obj = ItemORM(**payload.model_dump())
     db.add(obj)
     try:
@@ -108,7 +109,7 @@ async def create_item(
         await db.refresh(obj)
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据冲突：{exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="数据冲突，可能是重复记录")
     except SQLAlchemyError as exc:
         await db.rollback()
         raise _db_error(exc) from exc
@@ -143,7 +144,7 @@ async def update_item(
         await db.refresh(obj)
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据冲突：{exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="数据冲突，可能是重复记录")
     except SQLAlchemyError as exc:
         await db.rollback()
         raise _db_error(exc) from exc
@@ -178,7 +179,7 @@ async def patch_item(
         await db.refresh(obj)
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据冲突：{exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="数据冲突，可能是重复记录")
     except SQLAlchemyError as exc:
         await db.rollback()
         raise _db_error(exc) from exc
@@ -206,7 +207,7 @@ async def delete_item(
         raise
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据冲突：{exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="数据冲突，可能是重复记录")
     except SQLAlchemyError as exc:
         await db.rollback()
         raise _db_error(exc) from exc

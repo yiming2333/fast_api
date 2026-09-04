@@ -6,17 +6,20 @@
 - 后续替换为其他认证方案时只改这一处
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.db.session import fake_users_db
-from app.schemas.auth import User, UserInDB
+from app.db.session import get_db
+from app.models.user import UserORM
+from app.schemas.auth import User
 
 # 密码哈希工具（bcrypt）
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -40,17 +43,17 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-# ===== 用户 =====
-def get_user(db: dict, username: str) -> UserInDB | None:
+# ===== 用户（走真实数据库）=====
+async def get_user(db: AsyncSession, username: str) -> UserORM | None:
     """从数据库获取用户。"""
-    if username in db:
-        return UserInDB(**db[username])
-    return None
+    stmt = select(UserORM).where(UserORM.username == username)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
 
 
-def authenticate_user(db: dict, username: str, password: str):
+async def authenticate_user(db: AsyncSession, username: str, password: str):
     """验证用户凭据，成功返回用户，失败返回 False。"""
-    user = get_user(db, username)
+    user = await get_user(db, username)
     if not user or not verify_password(password, user.hashed_password):
         return False
     return user
@@ -60,12 +63,15 @@ def authenticate_user(db: dict, username: str, password: str):
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """创建 JWT 访问令牌。"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> User:
+async def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User:
     """从令牌中解析当前用户（依赖函数）。"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -80,10 +86,15 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> Use
     except JWTError:
         raise credentials_exception
 
-    user = get_user(fake_users_db, username)
+    user = await get_user(db, username)
     if user is None:
         raise credentials_exception
-    return user
+    return User(
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        disabled=user.disabled,
+    )
 
 
 async def get_current_active_user(
