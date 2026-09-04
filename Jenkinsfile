@@ -89,7 +89,7 @@ pipeline {
         stage('🐳 2. 构建 Docker 镜像') {
             steps {
                 echo "构建 app 和 test 镜像..."
-                bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} build --no-cache"
+                bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} build test"
             }
         }
 
