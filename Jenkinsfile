@@ -29,15 +29,18 @@ pipeline {
         // 钉钉配置（与原来相同，从凭证读取）
         DINGTALK_WEBHOOK     = credentials('dingtalk_webhook')
         DINGTALK_KEYWORD     = '测试'
-        // 默认环境（如果 params.ENV 未定义，则使用 dev）
-        ENV                  = params.ENV ?: 'dev'
+        // 注意：ENV 环境变量在后面的 script 中动态设置
     }
+
     stages {
         stage('🧹 1. 准备 & 拉取代码') {
             stages {
                 stage('1.0 👤 获取构建用户') {
                     steps {
                         script {
+                            // 设置 ENV（如果 params.ENV 未定义则默认 dev）
+                            env.ENV = params.ENV ?: 'dev'
+
                             try {
                                 wrap([$class: 'BuildUser']) {
                                     env.TRIGGER_USER = env.BUILD_USER_ID ?: 'unknown'
@@ -47,6 +50,7 @@ pipeline {
                                 env.TRIGGER_USER = 'unknown'
                             }
                             echo "本次构建触发人: ${env.TRIGGER_USER}"
+                            echo "当前环境: ${env.ENV}"
                         }
                     }
                 }
@@ -191,13 +195,11 @@ pipeline {
 // ================================================================
 def getBaseUrl(String envName) {
     // 根据环境返回 BASE_URL，这里简单映射，你也可以读取 config 文件
-    // 因为你的测试通过容器内 mock_server:5000 访问，所以 dev 和 prod 可能相同
-    // 如果你有不同环境的 mock 服务，可在此区分
     return "http://127.0.0.1:8000"
 }
 
 // ================================================================
-//  钉钉 + 邮件通知（直接复用原代码）
+//  钉钉 + 邮件通知
 // ================================================================
 def notifyAll(String status, String color, String icon) {
     try {
