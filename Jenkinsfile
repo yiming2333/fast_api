@@ -154,7 +154,7 @@ pipeline {
                     }
                     // 容器内 pytest 输出 allure 结果到 /app/allure-results，
                     // 已通过 docker-compose.yml 挂载到宿主机 ./allure-results
-                    def testCmd = "pytest ${xdistArg} -v --alluredir=/app/allure-results"
+                    def testCmd = "pytest ${xdistArg} -v --alluredir=/app/allure-results --cov-report=xml:htmlcov/coverage.xml"
                     echo "执行测试命令 (容器内): ${testCmd}"
 
                     def baseUrl = getBaseUrl(env.ENV)
@@ -220,24 +220,23 @@ pipeline {
 
         stage('📈 6. 发布覆盖率报告') {
             steps {
-                echo "正在发布覆盖率报告（pytest-cov HTML）..."
+                echo "正在发布覆盖率报告（使用 Coverage Plugin）..."
                 script {
-                    // 容器内 pytest 已通过 addopts 生成 htmlcov/，挂载回宿主机
-                    // 用 HTML Publisher 插件发布，构建页左侧出现 "Coverage Report" 链接
+                    // 使用 Coverage Plugin 解析 coverage.xml
+                    // 前提：已安装 Coverage Plugin 插件
                     try {
-                        publishHTML(target: [
-                            reportDir   : env.COVERAGE_DIR,
-                            reportFiles : 'index.html',
-                            reportName  : env.COVERAGE_REPORT_NAME,
-                            keepAll     : true,
-                            allowMissing: false,
-                            alwaysLinkToLastBuild: true
-                        ])
-                        echo "覆盖率报告已发布：${env.COVERAGE_LINK}"
+                        recordCoverage(tools: [[parser: 'COBERTURA', pattern: 'htmlcov/coverage.xml']])
+                        echo "覆盖率报告已发布，可在构建页面查看趋势图。"
                     } catch (e) {
-                        echo "publishHTML 失败（HTML Publisher 插件未安装？），改为归档 artifacts：${e.message}"
-                        // Fallback：归档为构建产物，可通过 Artifacts 浏览 htmlcov/index.html
-                        archiveArtifacts artifacts: "${env.COVERAGE_DIR}/**", allowEmptyArchive: true
+                        echo "recordCoverage 失败（Coverage Plugin 未安装？），尝试使用 Cobertura Plugin 作为备选..."
+                        try {
+                            cobertura coberturaReportFile: 'coverage.xml'
+                            echo "使用 Cobertura Plugin 发布成功。"
+                        } catch (e2) {
+                            echo "覆盖率发布失败，请安装 Coverage Plugin 或 Cobertura Plugin: ${e2.message}"
+                            // 如果都不行，退回到归档 artifacts
+                            archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
+                        }
                     }
                 }
             }
