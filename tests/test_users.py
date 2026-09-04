@@ -43,7 +43,7 @@ def test_create_user_duplicate_rejected(db_client: TestClient):
     }
     resp = db_client.post("/api/v1/users/", json=payload)
     assert resp.status_code == 400
-    assert "已存在" in resp.json()["detail"]
+    assert "已存在" in resp.json()["error"]
 
 
 def test_create_user_invalid_email(db_client: TestClient):
