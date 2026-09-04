@@ -11,6 +11,8 @@ pipeline {
 
     parameters {
         choice(name: 'PARALLEL',       choices: ['off', 'auto', '2', '3','4','5', '10'], description: '并发模式: off=串行, auto=自动, 数字=指定worker数')
+        // 如果你需要 ENV 参数，可以取消下面这行的注释：
+        // choice(name: 'ENV', choices: ['dev', 'prod'], description: '部署环境')
     }
 
     environment {
@@ -27,6 +29,8 @@ pipeline {
         // 钉钉配置（与原来相同，从凭证读取）
         DINGTALK_WEBHOOK     = credentials('dingtalk_webhook')
         DINGTALK_KEYWORD     = '测试'
+        // 默认环境（如果 params.ENV 未定义，则使用 dev）
+        ENV                  = params.ENV ?: 'dev'
     }
     stages {
         stage('🧹 1. 准备 & 拉取代码') {
@@ -81,8 +85,7 @@ pipeline {
         stage('🐳 2. 构建 Docker 镜像') {
             steps {
                 echo "构建 app 和 test 镜像..."
-                // 使用 docker compose build（会读取 docker-compose.yml 中的 build 指令）
-                bat "docker-compose -p ${env.COMPOSE_PROJECT_NAME} build"
+                bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} build"
             }
         }
 
@@ -96,15 +99,12 @@ pipeline {
                         case 'auto': xdistArg = '-n auto'; break
                         default:     xdistArg = "-n ${params.PARALLEL}"; break
                     }
-                    // 环境变量通过 -e 传递（已定义在 compose 中，但可覆盖）
-                    // 命令: pytest -n 4 -v --alluredir=/app/allure-results --reruns 3 --reruns-delay 1
                     def testCmd = "pytest ${xdistArg} -v --alluredir=/app/allure-results"
                     echo "执行测试命令: ${testCmd}"
 
-                    // 启动 compose，并在 test 容器退出后自动停止所有容器（--abort-on-container-exit）
-                    // 同时将 BASE_URL 通过环境变量覆盖（根据 ENV 参数）
-                    def baseUrl = getBaseUrl(params.ENV)  // 从配置文件或逻辑获取
+                    def baseUrl = getBaseUrl(env.ENV)
                     bat """
+                        chcp 65001 >nul
                         set BASE_URL=${baseUrl}
                         docker-compose -p ${env.COMPOSE_PROJECT_NAME} run --rm test ${testCmd}
                     """
@@ -116,16 +116,16 @@ pipeline {
             steps {
                 script {
                     // 创建 allure-results 目录（如果不存在）
-                    bat "if not exist \"${env.ALLURE_RESULTS}\" mkdir ${env.ALLURE_RESULTS}"
+                    bat "chcp 65001 >nul && if not exist \"${env.ALLURE_RESULTS}\" mkdir ${env.ALLURE_RESULTS}"
 
                     // environment.properties
                     def envProps = """
-                        Environment=${params.ENV ?: 'dev'}
+                        Environment=${env.ENV}
                         Parallel.Mode=${params.PARALLEL}
                         Trigger.User=${env.TRIGGER_USER ?: 'unknown'}
                         Build.Number=${env.BUILD_NUMBER}
                         Git.Branch=${env.GIT_BRANCH}
-                        Base.URL=${getBaseUrl(params.ENV)}
+                        Base.URL=${getBaseUrl(env.ENV)}
                         OS=Linux (Docker)
                     """.stripIndent().trim()
                     writeFile file: "${env.ALLURE_RESULTS}/environment.properties", text: envProps, encoding: 'UTF-8'
@@ -163,12 +163,9 @@ pipeline {
         always {
             echo "========== 🧹 收尾清理 =========="
             script {
-                // 停止并移除所有容器、网络、卷（-v 会删除匿名卷，但我们的挂载卷是 bind mount，不会删除宿主机数据）
-                bat "docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
-                // 归档日志（如果存在）
+                bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} down -v"
                 archiveArtifacts artifacts: 'logs/*.log', allowEmptyArchive: true
             }
-            // 无论成功失败都发送通知（但只在成功或失败时分别发，放在下面）
         }
 
         success {
@@ -179,9 +176,8 @@ pipeline {
         failure {
             echo "❌ 存在失败的测试用例！"
             script {
-                // 收集诊断信息（比如容器日志）
                 catchError(buildResult: null, stageResult: null) {
-                    bat "docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
+                    bat "chcp 65001 >nul && docker-compose -p ${env.COMPOSE_PROJECT_NAME} logs --tail=200 > diagnostics.log"
                     archiveArtifacts artifacts: 'diagnostics.log', allowEmptyArchive: true
                 }
                 notifyAll('FAILURE', 'red', '❌')
@@ -224,7 +220,7 @@ def sendEmailNotification(String status, String color, String icon) {
             <p>项目 <strong>${env.JOB_NAME}</strong> 构建${status == 'SUCCESS' ? '成功' : '失败'}！</p>
             <ul>
                 <li>构建编号：<strong>#${env.BUILD_NUMBER}</strong></li>
-                <li>环境：${params.ENV ?: 'dev'}</li>
+                <li>环境：${env.ENV}</li>
                 <li>并发：${params.PARALLEL}</li>
                 <li>触发人：${env.TRIGGER_USER ?: '未知'}</li>
                 <li>测试报告：<a href="${env.REPORT_LINK}">${env.REPORT_LINK}</a></li>
@@ -240,7 +236,7 @@ def sendDingTalkNotification(String status, String icon) {
     def text = """### ${titleText}
 - **项目**: ${env.JOB_NAME}
 - **构建号**: #${env.BUILD_NUMBER}
-- **环境**: ${params.ENV ?: 'dev'}
+- **环境**: ${env.ENV}
 - **并发**: ${params.PARALLEL}
 - **触发人**: ${env.TRIGGER_USER ?: '未知'}
 - **[📊 查看测试报告](${env.REPORT_LINK})**
