@@ -30,13 +30,12 @@ pipeline {
         ALLURE_RESULTS       = 'allure-results'
         ALLURE_REPORT_NAME   = 'AllureReport'
         COVERAGE_DIR         = 'htmlcov'
-        COVERAGE_REPORT_NAME = 'CoverageReport'
         MAIL_RECIPIENT       = 'yiming_2333@sina.com'
         GIT_URL              = 'https://github.com/yiming2333/fast_api.git'
         GIT_BRANCH           = 'master'
         GIT_CREDENTIALS_ID   = ''
         REPORT_LINK          = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/allure/"
-        COVERAGE_LINK        = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/CoverageReport/"
+        COVERAGE_LINK        = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/coverage/"
         DINGTALK_WEBHOOK     = credentials('dingtalk_webhook')
         DINGTALK_KEYWORD     = '测试'
 
